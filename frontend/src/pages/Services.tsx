@@ -5,11 +5,8 @@ import ErrorMessage from "../components/common/ErrorMessage";
 import Loading from "../components/common/Loading";
 import ServiceTable from "../components/dashboard/ServiceTable";
 
+import { fetchCostServices } from "../services/costApi";
 import type { ServiceCost } from "../types/cost";
-
-const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL ??
-  "http://127.0.0.1:8000";
 
 function Services() {
   const [services, setServices] = useState<ServiceCost[]>([]);
@@ -30,31 +27,10 @@ function Services() {
       setLoading(true);
       setError(null);
 
-      const params = new URLSearchParams();
-
-      if (appliedStartDate) {
-        params.set("start_date", appliedStartDate);
-      }
-
-      if (appliedEndDate) {
-        params.set("end_date", appliedEndDate);
-      }
-
-      const queryString = params.toString();
-
-      const url = queryString
-        ? `${API_BASE_URL}/api/v1/costs/services?${queryString}`
-        : `${API_BASE_URL}/api/v1/costs/services`;
-
-      const response = await fetch(url);
-
-      if (!response.ok) {
-        throw new Error(
-          `Failed to fetch service costs: ${response.status} ${response.statusText}`,
-        );
-      }
-
-      const data = await response.json();
+      const data = await fetchCostServices({
+        startDate: appliedStartDate || undefined,
+        endDate: appliedEndDate || undefined,
+      });
 
       setServices(data);
     } catch (err) {

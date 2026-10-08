@@ -4,11 +4,8 @@ import DateRangeFilter from "../components/common/DateRangeFilter";
 import ErrorMessage from "../components/common/ErrorMessage";
 import Loading from "../components/common/Loading";
 
+import { fetchCostDashboard } from "../services/costApi";
 import type { CostDriver } from "../types/cost";
-
-const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL ??
-  "http://127.0.0.1:8000";
 
 function CostDrivers() {
   const [drivers, setDrivers] = useState<CostDriver[]>([]);
@@ -29,31 +26,10 @@ function CostDrivers() {
       setLoading(true);
       setError(null);
 
-      const params = new URLSearchParams();
-
-      if (appliedStartDate) {
-        params.set("start_date", appliedStartDate);
-      }
-
-      if (appliedEndDate) {
-        params.set("end_date", appliedEndDate);
-      }
-
-      const queryString = params.toString();
-
-      const url = queryString
-        ? `${API_BASE_URL}/api/v1/costs/dashboard?${queryString}`
-        : `${API_BASE_URL}/api/v1/costs/dashboard`;
-
-      const response = await fetch(url);
-
-      if (!response.ok) {
-        throw new Error(
-          `Failed to fetch cost drivers: ${response.status} ${response.statusText}`,
-        );
-      }
-
-      const data = await response.json();
+      const data = await fetchCostDashboard({
+        startDate: appliedStartDate || undefined,
+        endDate: appliedEndDate || undefined,
+      });
 
       setDrivers(data.topCostDrivers);
     } catch (err) {

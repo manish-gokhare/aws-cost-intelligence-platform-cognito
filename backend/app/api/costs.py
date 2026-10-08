@@ -1,6 +1,8 @@
 from datetime import date
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+
+from app.auth.cognito import get_allowed_user
 
 from app.services.cost_explorer import CostExplorerService
 
@@ -8,8 +10,8 @@ from app.services.cost_explorer import CostExplorerService
 router = APIRouter(
     prefix="/api/v1/costs",
     tags=["Costs"],
+    dependencies=[Depends(get_allowed_user)],
 )
-
 
 def validate_date_range(
     start_date: date,
