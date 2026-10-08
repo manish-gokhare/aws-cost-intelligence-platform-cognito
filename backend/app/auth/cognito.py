@@ -2,6 +2,10 @@ import os
 import ssl
 from typing import Any
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 import certifi
 import jwt
 from fastapi import Depends, Header, HTTPException, status
