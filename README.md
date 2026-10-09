@@ -560,3 +560,15 @@ aws elasticbeanstalk describe-environments \
 
 After termination, separately inspect remaining load balancers, security groups, CloudWatch log groups, S3 objects, and DNS records. Do not assume every separately managed resource is removed automatically. If the custom domain should no longer point at the practice environment, update or remove its website CNAME in GoDaddy. Keep the ACM validation CNAME if you intend to reuse the certificate.
 
+```
+aws elasticbeanstalk terminate-environment \
+  --environment-name aws-cost-intelligence-practice \
+  --region us-east-1
+
+aws elasticbeanstalk describe-environments \
+  --environment-names aws-cost-intelligence-practice \
+  --region us-east-1 \
+  --query 'Environments[0].[EnvironmentName,Status,Health]' \
+  --output table
+```
+
