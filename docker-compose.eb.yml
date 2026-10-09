@@ -1,0 +1,21 @@
+services:
+  backend:
+    image: 195231312458.dkr.ecr.us-east-1.amazonaws.com/aws-cost-intelligence-backend:latest
+    environment:
+      COST_DATA_MODE: ${COST_DATA_MODE:-auto}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      COGNITO_REGION: ${COGNITO_REGION}
+      COGNITO_USER_POOL_ID: ${COGNITO_USER_POOL_ID}
+      COGNITO_APP_CLIENT_ID: ${COGNITO_APP_CLIENT_ID}
+      ALLOWED_EMAILS: ${ALLOWED_EMAILS}
+    expose:
+      - "8000"
+    restart: unless-stopped
+
+  frontend:
+    image: 195231312458.dkr.ecr.us-east-1.amazonaws.com/aws-cost-intelligence-frontend:latest
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
