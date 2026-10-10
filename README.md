@@ -93,6 +93,28 @@ aws iam get-instance-profile \
 
 The service role is used by Elastic Beanstalk to manage environment resources. The instance profile is attached to EC2 instances and supplies their AWS permissions.
 
+### 2.5 To list your Elastic Beanstalk applications and environments inside the app in AWS CLI, run:
+
+#List EB App.
+```bash
+aws elasticbeanstalk describe-applications \
+  --region us-east-1 \
+  --query 'Applications[*].[ApplicationName,DateCreated]' \
+  --output table
+
+#List the environment.
+aws elasticbeanstalk describe-environments \
+  --region us-east-1 \
+  --query 'Environments[*].[ApplicationName,EnvironmentName,Status,Health]' \
+  --output table
+```
+
+Remember the difference:
+- Application — the logical container for your application versions.
+- Environment — the running deployment with resources such as EC2 and a load balancer.
+
+Even after terminating an environment, the Elastic Beanstalk application itself can remain.
+
 ## 3. Create the Elastic Beanstalk environment
 
 The environment was created as a load-balanced environment, with one EC2 instance initially and an Application Load Balancer.
@@ -112,6 +134,31 @@ aws elasticbeanstalk create-environment \
     Namespace=aws:elasticbeanstalk:environment,OptionName=LoadBalancerType,Value=application \
     Namespace=aws:autoscaling:asg,OptionName=MinSize,Value=1 \
     Namespace=aws:autoscaling:asg,OptionName=MaxSize,Value=1
+```
+
+### 3.a  This command creates the environment variables as well.
+
+```bash
+aws elasticbeanstalk create-environment \
+  --application-name aws-cost-intelligence-platform \
+  --environment-name aws-cost-intelligence-practice \
+  --description "AWS Cost Intelligence learning rebuild" \
+  --solution-stack-name "64bit Amazon Linux 2023 v4.13.10 running Docker" \
+  --region us-east-1 \
+  --option-settings \
+    Namespace=aws:elasticbeanstalk:environment,OptionName=ServiceRole,Value=AWSCostIntelligence-EB-Service-Role \
+    Namespace=aws:autoscaling:launchconfiguration,OptionName=IamInstanceProfile,Value=AWSCostIntelligence-EB-EC2-Role \
+    Namespace=aws:autoscaling:launchconfiguration,OptionName=InstanceType,Value=t3.small \
+    Namespace=aws:elasticbeanstalk:environment,OptionName=EnvironmentType,Value=LoadBalanced \
+    Namespace=aws:elasticbeanstalk:environment,OptionName=LoadBalancerType,Value=application \
+    Namespace=aws:autoscaling:asg,OptionName=MinSize,Value=1 \
+    Namespace=aws:autoscaling:asg,OptionName=MaxSize,Value=1 \
+    Namespace=aws:elasticbeanstalk:application:environment,OptionName=COST_DATA_MODE,Value=auto \
+    Namespace=aws:elasticbeanstalk:application:environment,OptionName=AWS_REGION,Value=us-east-1 \
+    Namespace=aws:elasticbeanstalk:application:environment,OptionName=COGNITO_REGION,Value=us-east-1 \
+    Namespace=aws:elasticbeanstalk:application:environment,OptionName=COGNITO_USER_POOL_ID,Value=us-east-1_ZS4MbbMgy \
+    Namespace=aws:elasticbeanstalk:application:environment,OptionName=COGNITO_APP_CLIENT_ID,Value=6pr07jbhi2htkretkl73drp06o \
+    Namespace=aws:elasticbeanstalk:application:environment,OptionName=ALLOWED_EMAILS,Value=manish.gokhare@gmail.com
 ```
 
 Main options:
@@ -146,6 +193,175 @@ aws ec2 describe-instances \
   --query 'Reservations[].Instances[].[InstanceId,InstanceType,State.Name]' \
   --output table
 ```
+
+### 3.3 Describe ALB, Target Group and EC2
+
+```
+aws elasticbeanstalk describe-environment-resources \
+  --environment-name aws-cost-intelligence-practice \
+  --region us-east-1 \
+  --query 'EnvironmentResources.{Instances:Instances[*].Id,LoadBalancers:LoadBalancers[*].Name,AutoScalingGroups:AutoScalingGroups[*].Name}' \
+  --output json
+
+
+This should return the EC2 instance ID, the new ALB name, and the Auto Scaling Group name.
+
+{
+    "Instances": [
+        "i-01b8a535d4371b164"
+    ],
+    "LoadBalancers": [
+        "arn:aws:elasticloadbalancing:us-east-1:195231312458:loadbalancer/app/awseb--AWSEB-5Gw3BbOFd4Hl/0b7e5d35d17469ff"
+    ],
+    "AutoScalingGroups": [
+        "awseb-e-mqpjuh9vme-stack-AWSEBAutoScalingGroup-J6gSsp34OmDH"
+    ]
+}
+
+### 3.4 Run this command to find the target group attached to the new ALB:
+
+aws elbv2 describe-target-groups \
+  --load-balancer-arn arn:aws:elasticloadbalancing:us-east-1:195231312458:loadbalancer/app/awseb--AWSEB-5Gw3BbOFd4Hl/0b7e5d35d17469ff \
+  --region us-east-1 \
+  --query 'TargetGroups[*].[TargetGroupName,TargetGroupArn,Port,Protocol,HealthCheckPath]' \
+  --output json
+
+[
+    [
+        "awseb-AWSEB-KXEBZYXPMDON",
+        "arn:aws:elasticloadbalancing:us-east-1:195231312458:targetgroup/awseb-AWSEB-KXEBZYXPMDON/b9f48c2181c50e7a",
+        80,
+        "HTTP",
+        "/"
+    ]
+]
+
+### 3.5 Check TG health
+
+aws elbv2 describe-target-health \
+  --target-group-arn arn:aws:elasticloadbalancing:us-east-1:195231312458:targetgroup/awseb-AWSEB-KXEBZYXPMDON/b9f48c2181c50e7a \
+  --region us-east-1 \
+  --query 'TargetHealthDescriptions[*].[Target.Id,Target.Port,TargetHealth.State,TargetHealth.Description]' \
+  --output table
+
+
+### 3.6 Verify (Run this command to identify the security group attached to the new ALB)
+aws elbv2 describe-load-balancers \
+  --load-balancer-arns arn:aws:elasticloadbalancing:us-east-1:195231312458:loadbalancer/app/awseb--AWSEB-5Gw3BbOFd4Hl/0b7e5d35d17469ff \
+  --region us-east-1 \
+  --query 'LoadBalancers[0].SecurityGroups' \
+  --output table
+
+#sg-0734a1e98d4509c2b 
+
+### 3.7 Check Inbounnd Rules for the SG attached to ALB. Basically we want port 443 port for SG.
+
+aws ec2 describe-security-groups \
+  --group-ids sg-0734a1e98d4509c2b \
+  --region us-east-1 \
+  --query 'SecurityGroups[0].IpPermissions[*].[IpProtocol,FromPort,ToPort,IpRanges[*].CidrIp,UserIdGroupPairs[*].GroupId]' \
+  --output json
+
+
+#tcp 80:80 0.0.0.0/0
+
+#allow 443 (This allows public clients to establish HTTPS connections to the internet-facing ALB. It does not open port 443 directly on your EC2 instance)
+
+aws ec2 authorize-security-group-ingress \
+  --group-id sg-0734a1e98d4509c2b \
+  --protocol tcp \
+  --port 443 \
+  --cidr 0.0.0.0/0 \
+  --region us-east-1
+
+
+### 3.7 create an HTTPS listener on port 443 
+
+We need to create an HTTPS listener on port 443 because your new Application Load Balancer currently has only an HTTP listener on port 80.
+The listener tells the ALB how to handle incoming requests.
+- HTTP listener (port 80): accepts unencrypted HTTP requests.
+- HTTPS listener (port 443): accepts HTTPS requests, uses your ACM certificate to establish TLS, and forwards requests to your healthy target group on HTTP port 80.
+In your setup:
+Browser → HTTPS :443 → ALB (ACM certificate) → Target Group :80 → EC2 → Docker frontend
+Having an ACM certificate alone is not enough. The HTTPS listener must explicitly use it to enable HTTPS on the ALB.
+
+
+aws elbv2 create-listener \
+  --load-balancer-arn arn:aws:elasticloadbalancing:us-east-1:195231312458:loadbalancer/app/awseb--AWSEB-5Gw3BbOFd4Hl/0b7e5d35d17469ff \
+  --protocol HTTPS \
+  --port 443 \
+  --certificates CertificateArn=arn:aws:acm:us-east-1:195231312458:certificate/70e769c9-dd67-4218-ba48-8df3c84728af \
+  --default-actions Type=forward,TargetGroupArn=arn:aws:elasticloadbalancing:us-east-1:195231312458:targetgroup/awseb-AWSEB-KXEBZYXPMDON/b9f48c2181c50e7a \
+  --region us-east-1
+
+
+### 3.8 
+Test it with http://cost.manishcloudops.in and with https://cost.manishcloudops.in 
+
+Both forward traffic to ALB because it listen on 80 and 443
+
+Now lets forward traffic from 80 to 443.
+
+#retrieve the HTTP listener ARN:
+
+aws elbv2 describe-listeners \
+  --load-balancer-arn arn:aws:elasticloadbalancing:us-east-1:195231312458:loadbalancer/app/awseb--AWSEB-5Gw3BbOFd4Hl/0b7e5d35d17469ff \
+  --region us-east-1 \
+  --query 'Listeners[?Port==`80`].ListenerArn' \
+  --output text
+
+
+aws elbv2 modify-listener \
+  --listener-arn arn:aws:elasticloadbalancing:us-east-1:195231312458:listener/app/awseb--AWSEB-5Gw3BbOFd4Hl/0b7e5d35d17469ff/5c363e69dccfa051 \
+  --default-actions 'Type=redirect,RedirectConfig={Protocol=HTTPS,Port=443,StatusCode=HTTP_301}' \
+  --region us-east-1
+
+  arn:aws:elasticloadbalancing:us-east-1:195231312458:listener/app/awseb--AWSEB-5Gw3BbOFd4Hl/0b7e5d35d17469ff/5c363e69dccfa051
+
+  aws elbv2 modify-listener \
+  --listener-arn arn:aws:elasticloadbalancing:us-east-1:195231312458:listener/app/awseb--AWSEB-5Gw3BbOFd4Hl/0b7e5d35d17469ff/5c363e69dccfa051 \
+  --default-actions 'Type=redirect,RedirectConfig={Protocol=HTTPS,Port=443,StatusCode=HTTP_301}' \
+  --region us-east-1
+
+
+  #Verify Redirection
+
+  aws elbv2 describe-listeners \
+  --load-balancer-arn arn:aws:elasticloadbalancing:us-east-1:195231312458:loadbalancer/app/awseb--AWSEB-5Gw3BbOFd4Hl/0b7e5d35d17469ff \
+  --region us-east-1 \
+  --query 'Listeners[*].[Port,Protocol,DefaultActions[*].Type,DefaultActions[*].RedirectConfig]' \
+  --output json
+
+  #Test redirection - it should work.
+
+Where we are now
+Elastic Beanstalk environment
+Ready and Green
+
+
+EC2, Auto Scaling Group, ALB and target group
+Resources identified; target healthy
+
+
+ACM certificate and HTTPS listener :443
+Existing certificate attached and tested
+
+
+HTTP :80 → HTTPS :443 redirect
+Configured and tested
+
+```
+
+### Verification of Environment variables
+
+aws elasticbeanstalk describe-configuration-settings \
+  --application-name aws-cost-intelligence-platform \
+  --environment-name aws-cost-intelligence-practice \
+  --region us-east-1 \
+  --query "ConfigurationSettings[0].OptionSettings[?Namespace=='aws:elasticbeanstalk:application:environment'].[OptionName,Value]" \
+  --output table
+
+
 
 ## 4. Package the Docker Compose deployment file
 
@@ -217,7 +433,7 @@ aws s3 cp eb-deploy-v1.0.1.zip \
 
 A separate S3 key preserves the previous deployment bundle. Uploading to an existing key otherwise replaces the current object by default (subject to S3 versioning configuration).
 
-## 6. Register an Elastic Beanstalk application version
+## 6. Register an Elastic Beanstalk application version (register the correct version)
 
 ```bash
 aws elasticbeanstalk create-application-version \
@@ -265,6 +481,20 @@ aws elasticbeanstalk describe-events \
 ```
 
 Use this if deployment fails or health does not become Green.
+
+## Access URL 
+
+https://cost.manishcloudops.in/
+
+
+### Delete
+
+aws elasticbeanstalk terminate-environment \
+  --environment-name aws-cost-intelligence-practice \
+  --region us-east-1
+  
+
+### If not worked below are the troubleshooting steps.
 
 ## 8. Configure Elastic Beanstalk environment variables
 
@@ -572,3 +802,198 @@ aws elasticbeanstalk describe-environments \
   --output table
 ```
 
+#### Additional Details:
+
+## HTTPS Request Flow — Elastic Beanstalk
+
+### Architecture
+
+```text
+User / Browser
+      |
+      | HTTPS :443
+      | https://cost.manishcloudops.in
+      v
+DNS Provider (GoDaddy)
+      |
+      | Resolves custom domain to ALB
+      v
+Application Load Balancer (ALB)
+      |
+      | HTTPS Listener :443
+      | ACM certificate: cost.manishcloudops.in
+      | TLS termination
+      v
+Target Group
+      |
+      | HTTP :80
+      | Routes to healthy registered targets
+      v
+EC2 Instance
+      |
+      | EC2 Security Group allows port 80
+      | only from the ALB Security Group
+      v
+Docker Frontend Container (Nginx)
+      |
+      | Proxies /api/ requests internally
+      v
+Backend Container (FastAPI :8000)
+```
+
+### Component Responsibilities
+
+| Component | Responsibility |
+|---|---|
+| GoDaddy DNS | Maps the custom domain to the ALB through a DNS record |
+| AWS Certificate Manager (ACM) | Provides the TLS certificate used by the HTTPS listener |
+| ALB Listener :443 | Accepts HTTPS requests and terminates TLS |
+| Target Group | Registers EC2 targets and performs health checks |
+| EC2 Instance | Runs the Docker containers |
+| Auto Scaling Group (ASG) | Maintains the desired EC2 instance capacity and replaces failed instances when necessary |
+| Elastic Beanstalk | Orchestrates the environment, deployment, and supporting AWS resources |
+| Nginx Frontend | Serves the React application and proxies API requests to FastAPI |
+| FastAPI Backend | Processes API requests and retrieves AWS cost data |
+
+### Request Processing Workflow
+
+1. The user opens `https://cost.manishcloudops.in`.
+2. DNS resolves the domain to the Application Load Balancer.
+3. The ALB receives the HTTPS request on port `443`.
+4. The ALB uses the ACM certificate to establish TLS and decrypt the request.
+5. The listener forwards the request to the target group over HTTP on port `80`.
+6. The target group routes traffic to a healthy registered EC2 instance.
+7. The EC2 security group permits port `80` traffic from the ALB security group.
+8. Docker forwards host port `80` to the Nginx frontend container on port `80`.
+9. Nginx serves the React UI and proxies `/api/` requests to the FastAPI backend on port `8000`.
+10. The backend processes the request and returns the response through the frontend and ALB to the browser.
+
+### Important Configuration Notes
+
+- TLS terminates at the ALB. Traffic from the ALB to EC2 uses HTTP in this configuration.
+- The EC2 security group restricts inbound port `80` to the ALB security group.
+- The ASG maintains a desired capacity of one EC2 instance in the current practice environment.
+- The ALB forwards traffic only to eligible healthy targets.
+- The HTTPS listener must explicitly reference the ACM certificate and target group.
+- After HTTPS is verified, configure the HTTP listener on port `80` to redirect requests to HTTPS on port `443`.
+- An ACM certificate must be issued for a domain covered by the certificate and be available in the same AWS Region as the ALB.
+
+**Security note:** HTTPS protects traffic between the browser and ALB. This architecture does not encrypt the ALB-to-EC2 hop with TLS.
+
+
+### SSL Certificate Creation:
+
+## SSL/TLS Certificate Configuration — AWS ACM and GoDaddy
+
+### 1. Request a Public Certificate in AWS ACM
+
+AWS Certificate Manager (ACM) provides the SSL/TLS certificate used to enable HTTPS on the Application Load Balancer.
+
+1. Open the [AWS Certificate Manager Console](https://us-east-1.console.aws.amazon.com/acm/home?region=us-east-1#/certificates/list).
+2. Select the AWS Region **US East (N. Virginia) — `us-east-1`**, matching the Application Load Balancer.
+3. Choose **Request → Request a public certificate**.
+4. Enter the domain name:
+
+   ```text
+   cost.manishcloudops.in
+   ```
+
+5. Select **DNS validation**.
+6. Submit the certificate request.
+
+### 2. Validate Domain Ownership Using GoDaddy DNS
+
+ACM provides a unique CNAME record to prove ownership of the requested domain.
+
+1. Open the ACM certificate details page.
+2. Find the **Domains** or **DNS validation** section.
+3. Copy the generated CNAME **Name** and **Value**.
+4. Sign in to GoDaddy and open the DNS management page for `manishcloudops.in`.
+5. Add a new record with:
+   - **Type:** CNAME
+   - **Name:** The validation record name provided by ACM
+   - **Value:** The validation record value provided by ACM
+   - **TTL:** Use the default value or `1 Hour`
+
+6. Save the record and wait for DNS propagation.
+7. Return to ACM and wait until the certificate status changes to `ISSUED`.
+
+**Important:** Use the exact CNAME name and value generated by ACM. Do not manually construct the validation record.
+
+### 3. Understand the Two Different CNAME Records
+
+The GoDaddy DNS configuration contains two distinct types of CNAME records.
+
+| Record | Example name | Purpose |
+|---|---|---|
+| ACM validation CNAME | ACM-generated validation name | Proves domain ownership and supports certificate renewal |
+| Application CNAME | `cost` | Routes `cost.manishcloudops.in` to the Elastic Beanstalk environment |
+
+The application CNAME points to the Elastic Beanstalk environment's DNS name, or to the appropriate ALB DNS name when configured for that architecture. The ACM validation CNAME must remain in DNS for automatic certificate renewal.
+
+Do not replace the ACM validation CNAME with the application CNAME; they serve different purposes.
+
+### 4. Verify the Issued Certificate
+
+Use the AWS CLI to inspect the certificate:
+
+```bash
+aws acm describe-certificate \
+  --certificate-arn <YOUR_CERTIFICATE_ARN> \
+  --region us-east-1 \
+  --query 'Certificate.{Domain:DomainName,Status:Status,SANs:SubjectAlternativeNames,Expiry:NotAfter}' \
+  --output json
+```
+
+Verify that:
+
+- `Status` is `ISSUED`.
+- The requested domain is covered by the certificate.
+- The expiry date is in the future.
+- The certificate is in the same Region as the ALB.
+
+### 5. Attach the Certificate to the ALB
+
+After the certificate is issued:
+
+1. Open **EC2 → Load Balancers**.
+2. Select the Elastic Beanstalk Application Load Balancer.
+3. Open **Listeners and rules**.
+4. Add an HTTPS listener on port `443`.
+5. Select the ACM certificate for `cost.manishcloudops.in`.
+6. Configure the default action to forward traffic to the environment's existing target group on HTTP port `80`.
+7. Ensure the ALB security group allows inbound TCP `443`.
+
+### 6. Verify HTTPS and Configure Redirection
+
+Test the application using:
+
+```text
+https://cost.manishcloudops.in
+```
+
+Verify that the browser presents a valid certificate for the domain and that the application loads successfully.
+
+After HTTPS is confirmed, configure the HTTP listener on port `80` to redirect requests to HTTPS on port `443`.
+
+### Certificate and Traffic Flow
+
+```text
+Browser
+   |
+   | HTTPS :443
+   v
+Application Load Balancer
+   |
+   | ACM certificate
+   | TLS termination
+   |
+   | HTTP :80
+   v
+Target Group
+   |
+   v
+EC2 Instance → Docker Frontend
+```
+
+**Security note:** In this configuration, TLS terminates at the ALB. Traffic between the ALB and the EC2 instance uses HTTP. The EC2 security group should permit port `80` only from the ALB security group.
